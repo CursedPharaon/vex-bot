@@ -8,22 +8,60 @@ app = Flask(__name__)
 VK_TOKEN = os.environ.get('VK_TOKEN')
 CONFIRMATION_CODE = os.environ.get('CONFIRMATION_CODE')
 
-# ID менеджера
-MANAGER_LINK = "https://vk.com/kalashnikov3002"
-COMMUNITY_LINK = "https://vk.com/vex.studio"
+# ID сообщества Vex Studio (можно получить из короткого имени)
+# Если короткое имя @vex.studio, то ID можно найти в управлении сообществом
+# Или использовать короткое имя напрямую: 'vex.studio'
+GROUP_ID = 'vex.studio'  # Замени на ID или короткое имя твоего сообщества
+GROUP_LINK = 'https://vk.com/vex.studio'
+
+def is_subscribed(user_id):
+    """
+    Проверяет, подписан ли пользователь на сообщество.
+    Возвращает True если подписан, False если нет.
+    """
+    url = 'https://api.vk.com/method/groups.isMember'
+    params = {
+        'access_token': VK_TOKEN,
+        'group_id': GROUP_ID,
+        'user_id': user_id,
+        'v': '5.131'
+    }
+    
+    try:
+        response = requests.post(url, params=params)
+        data = response.json()
+        
+        # Проверяем наличие ошибок
+        if 'error' in data:
+            print(f"Ошибка API: {data['error']}")
+            return False
+        
+        # Метод возвращает 1 (подписан) или 0 (не подписан) [citation:2]
+        return data.get('response', 0) == 1
+    
+    except Exception as e:
+        print(f"Ошибка при проверке подписки: {e}")
+        return False
 
 def send_message(user_id, text):
     """Отправка сообщения пользователю"""
-    url = "https://api.vk.com/method/messages.send"
+    url = 'https://api.vk.com/method/messages.send'
     data = {
-        "user_id": user_id,
-        "message": text,
-        "access_token": VK_TOKEN,
-        "v": "5.131",
-        "random_id": 0
+        'user_id': user_id,
+        'message': text,
+        'access_token': VK_TOKEN,
+        'v': '5.131',
+        'random_id': 0
     }
     response = requests.post(url, data=data)
     return response.json()
+
+def send_subscription_required(user_id):
+    """Отправляет сообщение с требованием подписаться"""
+    text = f"""❌ Для начала подпишись на сообщество: {GROUP_LINK}
+
+Подпишись, а потом напиши любое слово — я проверю и покажу услуги!"""
+    send_message(user_id, text)
 
 def get_services():
     return """📋 Услуги Vex Studio:
@@ -44,7 +82,6 @@ def get_help():
 услуги — посмотреть цены
 цены — то же самое
 менеджер — контакт менеджера
-контакт — то же самое
 паблик — ссылка на сообщество
 помощь — показать это сообщение"""
 
@@ -56,7 +93,7 @@ def index():
 def webhook():
     data = request.json
     
-    # Подтверждение сервера (ВАЖНО!)
+    # Подтверждение сервера
     if data.get('type') == 'confirmation':
         return CONFIRMATION_CODE
     
@@ -66,23 +103,37 @@ def webhook():
         user_id = msg['from_id']
         text = msg.get('text', '').lower().strip()
         
-        if text in ['привет', 'начать', 'старт', 'start', 'здарова']:
+        # Игнорируем сообщения от самого себя (от бота)
+        # ВАЖНО: user_id сообщества отрицательный, например -123456789
+        # Нужно получать реальный ID бота, но для простоты пропускаем
+        
+        # Проверяем подписку
+        if not is_subscribed(user_id):
+            send_subscription_required(user_id)
+            return 'ok', 200
+        
+        # Пользователь подписан — обрабатываем команды
+        if text in ['привет', 'начать', 'старт', 'start']:
             send_message(user_id, f"👋 Привет! Я бот Vex Studio.\n\n{get_help()}")
         
-        elif text in ['услуги', 'цены', 'прайс', 'услуги vex']:
+        elif text in ['услуги', 'цены', 'прайс']:
             send_message(user_id, get_services())
         
-        elif text in ['менеджер', 'контакт', 'поддержка', 'менедж', 'мен']:
-            send_message(user_id, f"👨‍💼 Наш менеджер: {MANAGER_LINK}\nПиши по любым вопросам!")
+        elif text in ['менеджер', 'контакт', 'поддержка']:
+            send_message(user_id, f"👨‍💼 Наш менеджер: https://vk.com/kalashnikov3002\nПиши по любым вопросам!")
         
-        elif text in ['паблик', 'сообщество', 'вк', 'vex.studio', 'группа']:
-            send_message(user_id, f"🌐 Наше сообщество: {COMMUNITY_LINK}\nПодписывайся!")
+        elif text in ['паблик', 'сообщество', 'группа']:
+            send_message(user_id, f"🌐 Наше сообщество: {GROUP_LINK}\nСпасибо, что подписался!")
         
-        elif text in ['помощь', 'хелп', 'help', 'команды', 'что умеешь']:
+        elif text in ['помощь', 'help', 'команды']:
             send_message(user_id, get_help())
         
-        elif text in ['пока', 'до свидания', 'bye']:
-            send_message(user_id, "👋 Пока! Возвращайся, если понадобится дизайн!")
+        elif text in ['проверь', 'подписка']:
+            # Повторная проверка подписки (полезно после подписки)
+            if is_subscribed(user_id):
+                send_message(user_id, "✅ Да, ты подписан! Теперь доступны команды.\n\n" + get_help())
+            else:
+                send_subscription_required(user_id)
         
         else:
             send_message(user_id, f"❌ Не понял команду.\n\n{get_help()}")
