@@ -1,73 +1,62 @@
 import os
-import json
-from flask import Flask, request, jsonify
-import vk_api
-from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 import requests
+from flask import Flask, request
 
 app = Flask(__name__)
 
-# Токен группы ВК (получить в Управлении сообществом -> Работа с API)
+# Переменные из окружения (настрой на Render.com)
 VK_TOKEN = os.environ.get('VK_TOKEN')
-CONFIRMATION_CODE = os.environ.get('CONFIRMATION_CODE')  # Код из настроек Callback API
+CONFIRMATION_CODE = os.environ.get('CONFIRMATION_CODE')
 
 # ID менеджера
-MANAGER_ID = "kalashnikov3002"  # Короткое имя
 MANAGER_LINK = "https://vk.com/kalashnikov3002"
-
-# URL сообщества
 COMMUNITY_LINK = "https://vk.com/vex.studio"
 
-def get_main_keyboard():
-    """Главное меню с кнопками"""
-    keyboard = VkKeyboard(one_time=False)
-    keyboard.add_button("📦 Услуги", color=VkKeyboardColor.PRIMARY)
-    keyboard.add_line()
-    keyboard.add_button("💬 Написать менеджеру", color=VkKeyboardColor.POSITIVE)
-    keyboard.add_line()
-    keyboard.add_button("🌐 ВК Сообщество", color=VkKeyboardColor.SECONDARY)
-    return keyboard.get_keyboard()
-
-def get_services_text():
-    """Текст с услугами"""
-    services = """📋 **Наши услуги — Vex Studio**
-
-1️⃣ 3D логотип — 230₽
-2️⃣ 2D логотип — 160₽
-3️⃣ Сайт под ключ — договорная (от 300₽)
-4️⃣ Автопиар — договорная
-5️⃣ Веб-игра — от 400₽
-6️⃣ Оформление поста (текст+логотип) — от 80₽
-
-💬 Для заказа пишите менеджеру: @kalashnikov3002
-🌐 Наш паблик: @vex.studio
-"""
-
-def send_message(user_id, message, keyboard=None):
+def send_message(user_id, text):
     """Отправка сообщения пользователю"""
     url = "https://api.vk.com/method/messages.send"
     data = {
         "user_id": user_id,
-        "message": message,
+        "message": text,
         "access_token": VK_TOKEN,
         "v": "5.131",
         "random_id": 0
     }
-    if keyboard:
-        data["keyboard"] = keyboard
-    
     response = requests.post(url, data=data)
     return response.json()
 
+def get_services():
+    return """📋 Услуги Vex Studio:
+
+1️⃣ 3D логотип — 230₽
+2️⃣ 2D логотип — 160₽
+3️⃣ Сайт под ключ — от 300₽ (договорная)
+4️⃣ Автопиар — договорная
+5️⃣ Веб-игра — от 400₽
+6️⃣ Оформление поста (текст+логотип) — от 80₽
+
+Заказ: @kalashnikov3002"""
+
+def get_help():
+    return """🔍 Доступные команды:
+
+привет — поздороваться
+услуги — посмотреть цены
+цены — то же самое
+менеджер — контакт менеджера
+контакт — то же самое
+паблик — ссылка на сообщество
+помощь — показать это сообщение"""
+
 @app.route('/', methods=['GET'])
 def index():
-    return "Bot is running!", 200
+    return "Бот работает!", 200
 
 @app.route('/', methods=['POST'])
 def webhook():
     data = request.json
     
-    # Проверка на подтверждение сервера
+    # Подтверждение сервера (ВАЖНО!)
     if data.get('type') == 'confirmation':
         return CONFIRMATION_CODE
     
@@ -75,49 +64,28 @@ def webhook():
     if data.get('type') == 'message_new':
         msg = data['object']['message']
         user_id = msg['from_id']
-        text = msg.get('text', '').lower()
+        text = msg.get('text', '').lower().strip()
         
-        if text == 'начать' or text == 'start' or text == 'привет':
-            send_message(
-                user_id,
-                f"👋 Привет! Я бот магазина Vex Studio\n"
-                f"Выбери действие на кнопках ниже:",
-                get_main_keyboard()
-            )
+        if text in ['привет', 'начать', 'старт', 'start', 'здарова']:
+            send_message(user_id, f"👋 Привет! Я бот Vex Studio.\n\n{get_help()}")
         
-        elif 'услуг' in text:
-            send_message(
-                user_id,
-                get_services_text(),
-                get_main_keyboard()
-            )
+        elif text in ['услуги', 'цены', 'прайс', 'услуги vex']:
+            send_message(user_id, get_services())
         
-        elif 'менеджер' in text:
-            send_message(
-                user_id,
-                f"👨‍💼 Напиши менеджеру: {MANAGER_LINK}\nОн ответит на все вопросы!",
-                get_main_keyboard()
-            )
+        elif text in ['менеджер', 'контакт', 'поддержка', 'менедж', 'мен']:
+            send_message(user_id, f"👨‍💼 Наш менеджер: {MANAGER_LINK}\nПиши по любым вопросам!")
         
-        elif 'сообщество' in text or 'паблик' in text or 'vex.studio' in text:
-            send_message(
-                user_id,
-                f"🌐 Наше сообщество ВК: {COMMUNITY_LINK}\nПодписывайся, там все новости!",
-                get_main_keyboard()
-            )
+        elif text in ['паблик', 'сообщество', 'вк', 'vex.studio', 'группа']:
+            send_message(user_id, f"🌐 Наше сообщество: {COMMUNITY_LINK}\nПодписывайся!")
+        
+        elif text in ['помощь', 'хелп', 'help', 'команды', 'что умеешь']:
+            send_message(user_id, get_help())
+        
+        elif text in ['пока', 'до свидания', 'bye']:
+            send_message(user_id, "👋 Пока! Возвращайся, если понадобится дизайн!")
         
         else:
-            # Ответ по умолчанию с кнопками
-            send_message(
-                user_id,
-                f"❓ Не понял команду.\n\n"
-                f"📌 Доступные команды:\n"
-                f"• «Услуги» — посмотреть цены\n"
-                f"• «Написать менеджеру» — контакт\n"
-                f"• «ВК Сообщество» — наш паблик\n"
-                f"• «Привет» — начать сначала",
-                get_main_keyboard()
-            )
+            send_message(user_id, f"❌ Не понял команду.\n\n{get_help()}")
     
     return 'ok', 200
 
